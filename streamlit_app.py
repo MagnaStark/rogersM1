@@ -1,20 +1,14 @@
 """
 Sistema de Dashboard de Presupuestos - Colegio Rogers Hall
-VERSION CLOUD - Lee desde OneDrive/SharePoint (CON ANTI-CACHÉ)
+MODO CARGA MANUAL - Máxima velocidad para presentaciones
 """
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-import requests
-from io import BytesIO
-import time  # <--- NUEVO: Necesario para el truco del tiempo
 
 # ==================== CONFIGURACIÓN ====================
-# Enlace base (Tu enlace público directo)
-EXCEL_URL = "https://unimodelo-my.sharepoint.com/:x:/g/personal/maximiliano_baston_modelo_edu_mx/IQBiqVAOknLuQJazwnLNkjWcARZUcbO94bXR8_54VabNL34?download=1"
-
 st.set_page_config(
     page_title="Dashboard Presupuestos - Rogers Hall",
     page_icon="🎓",
@@ -69,63 +63,64 @@ st.markdown("""
         padding: 20px;
         font-size: 13px;
     }
+    
+    /* Estilo para el uploader */
+    [data-testid="stFileUploader"] {
+        padding: 10px;
+        border: 1px dashed #4fd1c5;
+        border-radius: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==================== PALETA DE COLORES ====================
 CHART_COLORS = ['#4fd1c5', '#f6ad55', '#fc8181', '#b794f4', '#63b3ed', '#68d391', '#faf089', '#f687b3']
 
-# ==================== CARGAR DATOS ====================
-# @st.cache_data(ttl=30)  <--- COMENTADO PARA FORZAR RECARGA REAL
-def load_data():
-    """Descarga y lee el Excel desde OneDrive/SharePoint con Anti-Caché"""
+# ==================== HEADER ====================
+st.markdown("""
+<div style='text-align: center; padding: 20px 0 30px 0;'>
+    <h1 style='color: #ffffff; font-size: 32px; margin-bottom: 5px;'>
+        🎓 Sistema de Gestión de Presupuestos
+    </h1>
+    <p style='color: #718096; font-size: 16px;'>
+        Colegio Peninsular Rogers Hall
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# ==================== SIDEBAR - CARGA DE ARCHIVO ====================
+st.sidebar.markdown("### 📂 Cargar Datos")
+st.sidebar.info("Sube aquí el archivo 'Presupuesto.xlsx' actualizado.")
+
+uploaded_file = st.sidebar.file_uploader("Seleccionar Excel", type=["xlsx", "xls"])
+
+# Lógica de carga
+df = None
+
+if uploaded_file is not None:
     try:
-        # TRUCO: Agregamos un timestamp al final (?v=123456) para que Microsoft
-        # piense que es una URL nueva y no nos de el archivo viejo.
-        url_con_timestamp = EXCEL_URL + f"&v={time.time()}"
+        # Leemos el archivo que el usuario acaba de subir
+        df = pd.read_excel(uploaded_file, sheet_name='Base datos', engine='openpyxl')
         
-        response = requests.get(url_con_timestamp)
-        response.raise_for_status()
-        
-        df = pd.read_excel(BytesIO(response.content), sheet_name='Base datos', engine='openpyxl')
+        # Limpieza y formateo
         df.columns = ['concepto', 'proposito', 'descripcion', 'departamento', 'curso_escolar', 'mes', 'año', 'importe']
-        
         meses_orden = {'Ene': 1, 'Feb': 2, 'Mar': 3, 'Abr': 4, 'May': 5, 'Jun': 6, 
                        'Jul': 7, 'Ago': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dic': 12}
         df['mes_num'] = df['mes'].map(meses_orden)
-        return df, None
+        
+        st.sidebar.success("✅ Datos actualizados")
+        
     except Exception as e:
-        return None, str(e)
-
-# Sidebar - Botón actualizar
-st.sidebar.markdown("### 🔄 Actualizar")
-if st.sidebar.button("⟳ RECARGAR DATOS", use_container_width=True, type="primary"):
-    # Limpiamos caché de Streamlit por si acaso
-    st.cache_data.clear()
-    st.rerun()
-
-st.sidebar.markdown("""
-<div style='background: #2d3748; padding: 10px; border-radius: 8px; font-size: 12px; color: #a0aec0;'>
-    <strong>📝 Para actualizar:</strong><br>
-    1. Edita el Excel en OneDrive (Navegador)<br>
-    2. Espera que diga "Guardado"<br>
-    3. Presiona el botón arriba
-</div>
-""", unsafe_allow_html=True)
-st.sidebar.markdown("---")
-
-# Cargar datos
-df, error = load_data()
-
-if error:
-    st.error(f"❌ Error al cargar datos: {error}")
-    st.stop()
-
-if df is None or len(df) == 0:
-    st.error("❌ No se pudieron cargar los datos")
-    st.stop()
+        st.error(f"❌ Error al leer el archivo: {e}")
+        st.stop()
+else:
+    # Muestra un mensaje amigable si no hay archivo
+    st.info("👋 **Bienvenido al Dashboard.**")
+    st.warning("⚠️ Por favor, carga el archivo Excel en el menú de la izquierda para ver los gráficos.")
+    st.stop() # Detiene la ejecución hasta que haya archivo
 
 # ==================== SIDEBAR - FILTROS ====================
+st.sidebar.markdown("---")
 st.sidebar.markdown("## 🎛️ Filtros")
 
 # Filtro Departamento
@@ -172,18 +167,6 @@ df_filtered = df[
     (df['curso_escolar'].isin(curso_selected)) &
     (df['año'].isin(año_selected))
 ]
-
-# ==================== HEADER ====================
-st.markdown("""
-<div style='text-align: center; padding: 20px 0 30px 0;'>
-    <h1 style='color: #ffffff; font-size: 32px; margin-bottom: 5px;'>
-        🎓 Sistema de Gestión de Presupuestos
-    </h1>
-    <p style='color: #718096; font-size: 16px;'>
-        Colegio Peninsular Rogers Hall
-    </p>
-</div>
-""", unsafe_allow_html=True)
 
 # ==================== KPIs ====================
 col1, col2, col3, col4 = st.columns(4)
