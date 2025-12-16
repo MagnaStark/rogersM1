@@ -1,12 +1,13 @@
 """
 Sistema de Dashboard de Presupuestos - Colegio Rogers Hall
-MODO CARGA MANUAL - Máxima velocidad para presentaciones
+VERSION FINAL: GOOGLE SHEETS AUTOMÁTICO (Estilo SINAPSIS)
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
+import time
 
 # ==================== CONFIGURACIÓN ====================
 st.set_page_config(
@@ -16,21 +17,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==================== ESTILOS CSS DARK MODE ====================
+# ✅ ENLACE CONECTADO CORRECTAMENTE
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSJEN3uWSwROA6s6jk3lZSg7iSK95aDlP9mf4AqxVfJZJQb4-mhIOkJyoy_2wRWwE9gWOUFNOzmdRNs/pub?gid=0&single=true&output=csv"
+
+# ==================== ESTILOS CSS (SINAPSIS) ====================
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #0e1117;
-    }
-    
-    [data-testid="stSidebar"] {
-        background-color: #1a1f2e;
-    }
-    
-    h1, h2, h3 {
-        color: #ffffff !important;
-    }
-    
+    .stApp { background-color: #0e1117; }
+    [data-testid="stSidebar"] { background-color: #1a1f2e; }
+    [data-testid="stSidebar"] .stMarkdown { color: #ffffff; }
+    h1, h2, h3 { color: #ffffff !important; }
     .metric-card {
         background: linear-gradient(135deg, #1a1f2e 0%, #252d3d 100%);
         padding: 25px;
@@ -39,127 +35,120 @@ st.markdown("""
         text-align: center;
         box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
-    
-    .metric-value {
-        font-size: 36px;
-        font-weight: 700;
-        color: #4fd1c5;
-        margin-bottom: 5px;
-    }
-    
-    .metric-label {
-        font-size: 14px;
-        color: #a0aec0;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
+    .metric-value { font-size: 36px; font-weight: 700; color: #4fd1c5; margin-bottom: 5px; }
+    .metric-label { font-size: 14px; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    .footer {
-        text-align: center;
-        color: #718096;
-        padding: 20px;
-        font-size: 13px;
-    }
-    
-    /* Estilo para el uploader */
-    [data-testid="stFileUploader"] {
-        padding: 10px;
-        border: 1px dashed #4fd1c5;
-        border-radius: 10px;
-    }
+    hr { border-color: #2d3748; }
+    .footer { text-align: center; color: #718096; padding: 20px; font-size: 13px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==================== PALETA DE COLORES ====================
 CHART_COLORS = ['#4fd1c5', '#f6ad55', '#fc8181', '#b794f4', '#63b3ed', '#68d391', '#faf089', '#f687b3']
 
-# ==================== HEADER ====================
-st.markdown("""
-<div style='text-align: center; padding: 20px 0 30px 0;'>
-    <h1 style='color: #ffffff; font-size: 32px; margin-bottom: 5px;'>
-        🎓 Sistema de Gestión de Presupuestos
-    </h1>
-    <p style='color: #718096; font-size: 16px;'>
-        Colegio Peninsular Rogers Hall
-    </p>
-</div>
-""", unsafe_allow_html=True)
-
-# ==================== SIDEBAR - CARGA DE ARCHIVO ====================
-st.sidebar.markdown("### 📂 Cargar Datos")
-st.sidebar.info("Sube aquí el archivo 'Presupuesto.xlsx' actualizado.")
-
-uploaded_file = st.sidebar.file_uploader("Seleccionar Excel", type=["xlsx", "xls"])
-
-# Lógica de carga
-df = None
-
-if uploaded_file is not None:
+# ==================== CARGAR DATOS (SIN CACHÉ) ====================
+@st.cache_data(ttl=0)
+def load_data(url):
     try:
-        # Leemos el archivo que el usuario acaba de subir
-        df = pd.read_excel(uploaded_file, sheet_name='Base datos', engine='openpyxl')
+        # Truco técnico: Agregamos tiempo al link para obligar la descarga fresca
+        timestamp = int(time.time())
+        final_url = f"{url}&v={timestamp}"
+            
+        # Leemos directo de Google
+        df = pd.read_csv(final_url)
         
-        # Limpieza y formateo
-        df.columns = ['concepto', 'proposito', 'descripcion', 'departamento', 'curso_escolar', 'mes', 'año', 'importe']
+        # Limpieza de columnas
+        df.columns = df.columns.str.lower().str.strip()
+        
+        # Mapa de renombres para asegurar compatibilidad
+        rename_map = {
+            'concepto del gasto': 'concepto',
+            'descripción del gasto': 'descripcion',
+            'para que va a servir': 'proposito'
+        }
+        df = df.rename(columns=rename_map)
+
+        # Mapeo de meses
         meses_orden = {'Ene': 1, 'Feb': 2, 'Mar': 3, 'Abr': 4, 'May': 5, 'Jun': 6, 
                        'Jul': 7, 'Ago': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dic': 12}
-        df['mes_num'] = df['mes'].map(meses_orden)
         
-        st.sidebar.success("✅ Datos actualizados")
+        if 'mes' in df.columns:
+            if df['mes'].dtype == object:
+                df['mes_num'] = df['mes'].map(meses_orden)
+            else:
+                df['mes_num'] = df['mes']
         
-    except Exception as e:
-        st.error(f"❌ Error al leer el archivo: {e}")
-        st.stop()
-else:
-    # Muestra un mensaje amigable si no hay archivo
-    st.info("👋 **Bienvenido al Dashboard.**")
-    st.warning("⚠️ Por favor, carga el archivo Excel en el menú de la izquierda para ver los gráficos.")
-    st.stop() # Detiene la ejecución hasta que haya archivo
+        # --- LIMPIEZA INTELIGENTE DE MONTOS ---
+        # Detecta si viene como texto "$10,000.00" o "10.000,00" y lo arregla
+        if 'importe' in df.columns:
+            def limpiar_moneda(val):
+                if isinstance(val, (int, float)):
+                    return val
+                val = str(val).strip()
+                if val == 'nan': return 0
+                
+                # Caso europeo (Puntos miles, coma decimal): "10.000,00"
+                if ',' in val and '.' in val and val.rfind(',') > val.rfind('.'):
+                    val = val.replace('.', '').replace(',', '.')
+                # Caso mixto raro o simple con coma decimal: "10000,00"
+                elif ',' in val and '.' not in val:
+                    val = val.replace(',', '.')
+                # Caso estándar (Coma miles, punto decimal): "10,000.00"
+                else:
+                    val = val.replace(',', '') 
+                
+                return float(val)
 
-# ==================== SIDEBAR - FILTROS ====================
+            df['importe'] = df['importe'].apply(limpiar_moneda)
+            
+        return df, None
+    except Exception as e:
+        return None, str(e)
+
+# ==================== SIDEBAR - CONTROL ====================
+st.sidebar.markdown("### 🔄 Control de Datos")
+
+if st.sidebar.button("⟳ ACTUALIZAR DATOS", type="primary", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
+
+st.sidebar.info("Modifica el Google Sheet y presiona el botón para ver los cambios.")
+
+# Carga inicial
+df, error = load_data(SHEET_URL)
+
+if error:
+    st.error(f"❌ Error conectando: {error}")
+    st.stop()
+
+# ==================== FILTROS ====================
 st.sidebar.markdown("---")
 st.sidebar.markdown("## 🎛️ Filtros")
 
-# Filtro Departamento
-st.sidebar.markdown("### 🏢 Departamento")
 departamentos = df['departamento'].unique().tolist()
-dept_selected = st.sidebar.multiselect(
-    "Departamentos",
-    options=departamentos,
-    default=departamentos,
-    label_visibility="collapsed"
-)
+dept_selected = st.sidebar.multiselect("Departamentos", departamentos, default=departamentos)
 
 st.sidebar.markdown("---")
-
-# Filtro Curso Escolar
-st.sidebar.markdown("### 📚 Curso Escolar")
 cursos = df['curso_escolar'].unique().tolist()
-curso_selected = st.sidebar.multiselect(
-    "Cursos",
-    options=cursos,
-    default=cursos,
-    label_visibility="collapsed"
-)
+curso_selected = st.sidebar.multiselect("Cursos", cursos, default=cursos)
 
 st.sidebar.markdown("---")
-
-# Filtro Año
-st.sidebar.markdown("### 📅 Año")
 años = sorted(df['año'].unique().tolist())
-año_selected = st.sidebar.multiselect(
-    "Años",
-    options=años,
-    default=años,
-    label_visibility="collapsed"
-)
+año_selected = st.sidebar.multiselect("Años", años, default=años)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+<div style='text-align: center; color: #718096; font-size: 12px; padding: 20px;'>
+    <strong>SINAPSIS</strong><br>
+    Consultoría en Transformación Digital<br><br>
+    📊 Dashboard Cloud
+</div>
+""", unsafe_allow_html=True)
 
 # ==================== APLICAR FILTROS ====================
 if not dept_selected or not curso_selected or not año_selected:
-    st.warning("⚠️ Selecciona al menos un valor en cada filtro")
+    st.warning("⚠️ Selecciona filtros")
     st.stop()
 
 df_filtered = df[
@@ -177,247 +166,85 @@ num_registros = len(df_filtered)
 max_gasto = df_filtered['importe'].max() if len(df_filtered) > 0 else 0
 
 with col1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">${total_gasto:,.0f}</div>
-        <div class="metric-label">Gasto Total</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"""<div class="metric-card"><div class="metric-value">${total_gasto:,.0f}</div><div class="metric-label">Gasto Total</div></div>""", unsafe_allow_html=True)
 with col2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color: #f6ad55;">${promedio_gasto:,.0f}</div>
-        <div class="metric-label">Promedio por Gasto</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"""<div class="metric-card"><div class="metric-value" style="color: #f6ad55;">${promedio_gasto:,.0f}</div><div class="metric-label">Promedio</div></div>""", unsafe_allow_html=True)
 with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color: #63b3ed;">{num_registros}</div>
-        <div class="metric-label">Total Registros</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"""<div class="metric-card"><div class="metric-value" style="color: #63b3ed;">{num_registros}</div><div class="metric-label">Registros</div></div>""", unsafe_allow_html=True)
 with col4:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color: #68d391;">${max_gasto:,.0f}</div>
-        <div class="metric-label">Gasto Máximo</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="metric-card"><div class="metric-value" style="color: #68d391;">${max_gasto:,.0f}</div><div class="metric-label">Máximo</div></div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==================== GRÁFICAS ====================
+# ==================== GRÁFICOS (SINAPSIS) ====================
 col_chart1, col_chart2 = st.columns([2, 1])
 
 with col_chart1:
     st.markdown("### 📊 Gasto Mensual")
-    
-    meses_orden = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    meses_orden_list = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
     df_mes = df_filtered.groupby('mes')['importe'].sum().reset_index()
-    df_mes['mes_orden'] = df_mes['mes'].map({m: i for i, m in enumerate(meses_orden)})
+    # Logica para ordenar meses
+    df_mes['mes_orden'] = df_mes['mes'].map({m: i for i, m in enumerate(meses_orden_list)}).fillna(0)
     df_mes = df_mes.sort_values('mes_orden')
     
-    fig_mes = go.Figure()
-    fig_mes.add_trace(go.Bar(
-        y=df_mes['mes'],
-        x=df_mes['importe'],
-        orientation='h',
-        marker=dict(
-            color=df_mes['importe'],
-            colorscale=[[0, '#4fd1c5'], [0.5, '#63b3ed'], [1, '#b794f4']],
-        ),
-        text=[f'${x:,.0f}' for x in df_mes['importe']],
-        textposition='outside',
-        textfont=dict(color='#e2e8f0', size=11),
-        hovertemplate='<b>%{y}</b><br>Importe: $%{x:,.0f}<extra></extra>'
+    fig_mes = go.Figure(go.Bar(
+        y=df_mes['mes'], x=df_mes['importe'], orientation='h',
+        marker=dict(color=df_mes['importe'], colorscale=[[0, '#4fd1c5'], [1, '#b794f4']]),
+        text=[f'${x:,.0f}' for x in df_mes['importe']], textposition='outside',
+        textfont=dict(color='#e2e8f0'), hovertemplate='<b>%{y}</b><br>$%{x:,.0f}<extra></extra>'
     ))
-    
-    fig_mes.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='', tickformat='$,.0f'),
-        yaxis=dict(showgrid=False, categoryorder='array', categoryarray=meses_orden[::-1]),
-        margin=dict(l=60, r=80, t=20, b=40),
-        height=400
-    )
-    
+    fig_mes.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'), margin=dict(l=60, r=80, t=20, b=40), height=400)
     st.plotly_chart(fig_mes, use_container_width=True)
 
 with col_chart2:
-    st.markdown("### 🥧 Distribución por Concepto")
-    
-    df_concepto = df_filtered.groupby('concepto')['importe'].sum().reset_index()
-    df_concepto = df_concepto.sort_values('importe', ascending=False)
-    
-    fig_pie = go.Figure()
-    fig_pie.add_trace(go.Pie(
-        labels=df_concepto['concepto'],
-        values=df_concepto['importe'],
-        hole=0.5,
-        marker=dict(colors=CHART_COLORS),
-        textinfo='percent',
-        textposition='outside',
-        textfont=dict(color='#e2e8f0', size=11),
-        hovertemplate='<b>%{label}</b><br>$%{value:,.0f}<br>%{percent}<extra></extra>'
-    ))
-    
-    fig_pie.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        showlegend=True,
-        legend=dict(font=dict(size=10, color='#a0aec0'), orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05),
-        margin=dict(l=20, r=120, t=20, b=20),
-        height=400,
-        annotations=[dict(text=f'<b>${total_gasto/1000000:.1f}M</b>', x=0.5, y=0.5, font_size=18, font_color='#4fd1c5', showarrow=False)]
-    )
-    
+    st.markdown("### 🥧 Distribución")
+    df_con = df_filtered.groupby('concepto')['importe'].sum().reset_index().sort_values('importe', ascending=False)
+    fig_pie = go.Figure(data=[go.Pie(labels=df_con['concepto'], values=df_con['importe'], hole=0.5, marker=dict(colors=CHART_COLORS))])
+    fig_pie.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, margin=dict(l=20, r=20, t=20, b=20), height=400, annotations=[dict(text=f'<b>${total_gasto/1000000:.1f}M</b>', x=0.5, y=0.5, font_size=18, font_color='#4fd1c5', showarrow=False)])
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# ==================== FILA 2 ====================
+# FILA 2
 col_chart3, col_chart4 = st.columns(2)
 
 with col_chart3:
     st.markdown("### 🏢 Gasto por Departamento")
-    
-    df_dept = df_filtered.groupby('departamento')['importe'].sum().reset_index()
-    df_dept = df_dept.sort_values('importe', ascending=True)
-    
-    fig_dept = go.Figure()
-    fig_dept.add_trace(go.Bar(
-        x=df_dept['importe'],
-        y=df_dept['departamento'],
-        orientation='h',
-        marker=dict(color=CHART_COLORS[:len(df_dept)]),
-        text=[f'${x:,.0f}' for x in df_dept['importe']],
-        textposition='outside',
-        textfont=dict(color='#e2e8f0', size=12),
-        hovertemplate='<b>%{y}</b><br>$%{x:,.0f}<extra></extra>'
-    ))
-    
-    fig_dept.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickformat='$,.0f'),
-        yaxis=dict(showgrid=False),
-        margin=dict(l=100, r=80, t=20, b=40),
-        height=350
-    )
-    
+    df_dept = df_filtered.groupby('departamento')['importe'].sum().reset_index().sort_values('importe', ascending=True)
+    fig_dept = go.Figure(go.Bar(x=df_dept['importe'], y=df_dept['departamento'], orientation='h', marker=dict(color=CHART_COLORS[:len(df_dept)]), text=[f'${x:,.0f}' for x in df_dept['importe']], textposition='outside', textfont=dict(color='#e2e8f0')))
+    fig_dept.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'), margin=dict(l=100, r=20, t=20, b=40), height=350)
     st.plotly_chart(fig_dept, use_container_width=True)
 
 with col_chart4:
     st.markdown("### 📈 Tendencia por Año")
-    
-    meses_ord = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-    df_tend = df_filtered.groupby(['año', 'mes', 'mes_num'])['importe'].sum().reset_index()
-    
-    fig_tend = go.Figure()
-    
-    for i, año in enumerate(sorted(df_tend['año'].unique())):
-        df_año = df_tend[df_tend['año'] == año].sort_values('mes_num')
-        fig_tend.add_trace(go.Scatter(
-            x=df_año['mes'],
-            y=df_año['importe'],
-            mode='lines+markers',
-            name=str(año),
-            line=dict(width=3, color=CHART_COLORS[i]),
-            marker=dict(size=8),
-            hovertemplate=f'<b>{año}</b><br>%{{x}}: $%{{y:,.0f}}<extra></extra>'
-        ))
-    
-    fig_tend.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        xaxis=dict(showgrid=False, categoryorder='array', categoryarray=meses_ord),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', tickformat='$,.0f'),
-        legend=dict(font=dict(color='#a0aec0'), orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=60, r=20, t=40, b=40),
-        height=350
-    )
-    
-    st.plotly_chart(fig_tend, use_container_width=True)
+    if 'mes_num' in df_filtered.columns:
+        df_tend = df_filtered.groupby(['año', 'mes', 'mes_num'])['importe'].sum().reset_index()
+        fig_tend = go.Figure()
+        for i, año in enumerate(sorted(df_tend['año'].unique())):
+            dfa = df_tend[df_tend['año'] == año].sort_values('mes_num')
+            fig_tend.add_trace(go.Scatter(x=dfa['mes'], y=dfa['importe'], mode='lines+markers', name=str(año), line=dict(width=3, color=CHART_COLORS[i])))
+        fig_tend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'), legend=dict(orientation='h', y=1.1), margin=dict(l=20, r=20, t=20, b=20), height=350)
+        st.plotly_chart(fig_tend, use_container_width=True)
 
-# ==================== FILA 3 ====================
+# FILA 3
 col_chart5, col_chart6 = st.columns([2, 1])
-
 with col_chart5:
-    st.markdown("### 📊 Comparativo Departamento por Curso Escolar")
-    
+    st.markdown("### 📊 Comparativo Depto/Curso")
     df_comp = df_filtered.groupby(['departamento', 'curso_escolar'])['importe'].sum().reset_index()
-    
-    fig_comp = px.bar(
-        df_comp,
-        x='departamento',
-        y='importe',
-        color='curso_escolar',
-        barmode='group',
-        color_discrete_sequence=CHART_COLORS,
-        text_auto='.2s'
-    )
-    
-    fig_comp.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        xaxis=dict(showgrid=False, title=''),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='', tickformat='$,.0f'),
-        legend=dict(title='', font=dict(color='#a0aec0'), orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=60, r=20, t=40, b=40),
-        height=350
-    )
-    fig_comp.update_traces(textposition='outside', textfont=dict(color='#e2e8f0', size=10))
-    
+    fig_comp = px.bar(df_comp, x='departamento', y='importe', color='curso_escolar', barmode='group', color_discrete_sequence=CHART_COLORS)
+    fig_comp.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), xaxis=dict(title=''), yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title=''), legend=dict(orientation='h', y=1.1), height=350)
     st.plotly_chart(fig_comp, use_container_width=True)
 
 with col_chart6:
     st.markdown("### 📅 Por Año")
-    
-    df_año = df_filtered.groupby('año')['importe'].sum().reset_index()
-    
-    fig_año = go.Figure()
-    fig_año.add_trace(go.Bar(
-        x=df_año['año'].astype(str),
-        y=df_año['importe'],
-        marker=dict(color=['#4fd1c5', '#f6ad55'][:len(df_año)]),
-        text=[f'${x:,.0f}' for x in df_año['importe']],
-        textposition='outside',
-        textfont=dict(color='#e2e8f0', size=14),
-        hovertemplate='<b>%{x}</b><br>$%{y:,.0f}<extra></extra>'
-    ))
-    
-    fig_año.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        xaxis=dict(showgrid=False, title=''),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='', tickformat='$,.0f'),
-        margin=dict(l=60, r=20, t=20, b=40),
-        height=350
-    )
-    
-    st.plotly_chart(fig_año, use_container_width=True)
-
-# ==================== TABLA ====================
-st.markdown("### 📋 Top 10 Gastos")
-
-df_top = df_filtered.nlargest(10, 'importe')[['departamento', 'concepto', 'descripcion', 'curso_escolar', 'mes', 'año', 'importe']]
-df_top['importe'] = df_top['importe'].apply(lambda x: f'${x:,.0f}')
-df_top.columns = ['Departamento', 'Concepto', 'Descripción', 'Curso', 'Mes', 'Año', 'Importe']
-
-st.dataframe(df_top, use_container_width=True, hide_index=True)
+    df_yr = df_filtered.groupby('año')['importe'].sum().reset_index()
+    fig_yr = go.Figure(go.Bar(x=df_yr['año'].astype(str), y=df_yr['importe'], marker=dict(color=['#4fd1c5', '#f6ad55']), text=[f'${x:,.0f}' for x in df_yr['importe']], textposition='outside', textfont=dict(color='#e2e8f0')))
+    fig_yr.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), xaxis=dict(title=''), yaxis=dict(gridcolor='rgba(255,255,255,0.1)', title=''), height=350)
+    st.plotly_chart(fig_yr, use_container_width=True)
 
 # ==================== FOOTER ====================
 st.markdown("---")
 st.markdown("""
 <div class="footer">
+    <p>Desarrollado por <strong style="color: #4fd1c5;">SINAPSIS</strong> - Consultoría en Transformación Digital</p>
     <p>© 2025 Colegio Peninsular Rogers Hall</p>
 </div>
 """, unsafe_allow_html=True)
