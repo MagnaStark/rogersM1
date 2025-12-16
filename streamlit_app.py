@@ -1,6 +1,6 @@
 """
 Sistema de Dashboard de Presupuestos - Colegio Rogers Hall
-VERSION CLOUD - Lee desde OneDrive/SharePoint
+VERSION CLOUD - Lee desde OneDrive/SharePoint (CON ANTI-CACHÉ)
 """
 
 import streamlit as st
@@ -9,8 +9,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 import requests
 from io import BytesIO
+import time  # <--- NUEVO: Necesario para el truco del tiempo
 
 # ==================== CONFIGURACIÓN ====================
+# Enlace base (Tu enlace público directo)
 EXCEL_URL = "https://unimodelo-my.sharepoint.com/:x:/g/personal/maximiliano_baston_modelo_edu_mx/IQBiqVAOknLuQJazwnLNkjWcARZUcbO94bXR8_54VabNL34?download=1"
 
 st.set_page_config(
@@ -74,11 +76,15 @@ st.markdown("""
 CHART_COLORS = ['#4fd1c5', '#f6ad55', '#fc8181', '#b794f4', '#63b3ed', '#68d391', '#faf089', '#f687b3']
 
 # ==================== CARGAR DATOS ====================
-@st.cache_data(ttl=30)
+# @st.cache_data(ttl=30)  <--- COMENTADO PARA FORZAR RECARGA REAL
 def load_data():
-    """Descarga y lee el Excel desde OneDrive/SharePoint"""
+    """Descarga y lee el Excel desde OneDrive/SharePoint con Anti-Caché"""
     try:
-        response = requests.get(EXCEL_URL)
+        # TRUCO: Agregamos un timestamp al final (?v=123456) para que Microsoft
+        # piense que es una URL nueva y no nos de el archivo viejo.
+        url_con_timestamp = EXCEL_URL + f"&v={time.time()}"
+        
+        response = requests.get(url_con_timestamp)
         response.raise_for_status()
         
         df = pd.read_excel(BytesIO(response.content), sheet_name='Base datos', engine='openpyxl')
@@ -94,14 +100,15 @@ def load_data():
 # Sidebar - Botón actualizar
 st.sidebar.markdown("### 🔄 Actualizar")
 if st.sidebar.button("⟳ RECARGAR DATOS", use_container_width=True, type="primary"):
+    # Limpiamos caché de Streamlit por si acaso
     st.cache_data.clear()
     st.rerun()
 
 st.sidebar.markdown("""
 <div style='background: #2d3748; padding: 10px; border-radius: 8px; font-size: 12px; color: #a0aec0;'>
     <strong>📝 Para actualizar:</strong><br>
-    1. Edita el Excel en OneDrive<br>
-    2. Guarda los cambios<br>
+    1. Edita el Excel en OneDrive (Navegador)<br>
+    2. Espera que diga "Guardado"<br>
     3. Presiona el botón arriba
 </div>
 """, unsafe_allow_html=True)
