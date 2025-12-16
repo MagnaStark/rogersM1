@@ -1,6 +1,6 @@
 """
 Sistema de Dashboard de Presupuestos - Colegio Rogers Hall
-VERSION FINAL: GOOGLE SHEETS AUTOMÁTICO (Estilo SINAPSIS)
+VERSION FINAL: GOOGLE SHEETS (Modo Exportación Compatible con Universidades)
 """
 
 import streamlit as st
@@ -17,8 +17,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ✅ ENLACE CONECTADO CORRECTAMENTE
-SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSJEN3uWSwROA6s6jk3lZSg7iSK95aDlP9mf4AqxVfJZJQb4-mhIOkJyoy_2wRWwE9gWOUFNOzmdRNs/pub?gid=0&single=true&output=csv"
+# ✅ ENLACE DE EXPORTACIÓN DIRECTA (Bypassea el error 404)
+# Usamos el ID de tu archivo para pedirle a Google que nos de un CSV directo
+FILE_ID = "1TxxfkTKk1ksoO7qsezoJPHNwNB2UAFbvh-TpJVYyZUQ"
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/{FILE_ID}/export?format=csv&gid=0"
 
 # ==================== ESTILOS CSS (SINAPSIS) ====================
 st.markdown("""
@@ -47,21 +49,20 @@ st.markdown("""
 # ==================== PALETA DE COLORES ====================
 CHART_COLORS = ['#4fd1c5', '#f6ad55', '#fc8181', '#b794f4', '#63b3ed', '#68d391', '#faf089', '#f687b3']
 
-# ==================== CARGAR DATOS (SIN CACHÉ) ====================
+# ==================== CARGAR DATOS ====================
 @st.cache_data(ttl=0)
 def load_data(url):
     try:
-        # Truco técnico: Agregamos tiempo al link para obligar la descarga fresca
-        timestamp = int(time.time())
-        final_url = f"{url}&v={timestamp}"
-            
-        # Leemos directo de Google
+        # Truco técnico: Timestamp para evitar caché
+        final_url = f"{url}&v={int(time.time())}"
+        
+        # Leemos el CSV
         df = pd.read_csv(final_url)
         
         # Limpieza de columnas
         df.columns = df.columns.str.lower().str.strip()
         
-        # Mapa de renombres para asegurar compatibilidad
+        # Mapa de renombres
         rename_map = {
             'concepto del gasto': 'concepto',
             'descripción del gasto': 'descripcion',
@@ -79,26 +80,29 @@ def load_data(url):
             else:
                 df['mes_num'] = df['mes']
         
-        # --- LIMPIEZA INTELIGENTE DE MONTOS ---
-        # Detecta si viene como texto "$10,000.00" o "10.000,00" y lo arregla
+        # --- LIMPIEZA DE IMPORTES MIXTOS ---
+        # Tu archivo tiene una mezcla de formatos (algunos usan coma para miles, otros puntos)
+        # Este código arregla ambos casos automáticamente.
         if 'importe' in df.columns:
             def limpiar_moneda(val):
-                if isinstance(val, (int, float)):
-                    return val
+                if pd.isna(val): return 0
+                if isinstance(val, (int, float)): return val
                 val = str(val).strip()
-                if val == 'nan': return 0
                 
-                # Caso europeo (Puntos miles, coma decimal): "10.000,00"
+                # Detectar formato Europeo: 10.000,00 (Punto antes que coma)
                 if ',' in val and '.' in val and val.rfind(',') > val.rfind('.'):
                     val = val.replace('.', '').replace(',', '.')
-                # Caso mixto raro o simple con coma decimal: "10000,00"
+                # Detectar formato Europeo simple: 10000,00
                 elif ',' in val and '.' not in val:
-                    val = val.replace(',', '.')
-                # Caso estándar (Coma miles, punto decimal): "10,000.00"
+                     val = val.replace(',', '.')
+                # Detectar formato Estándar: 10,000.00 (Coma antes que punto)
                 else:
-                    val = val.replace(',', '') 
+                    val = val.replace(',', '')
                 
-                return float(val)
+                try:
+                    return float(val)
+                except:
+                    return 0
 
             df['importe'] = df['importe'].apply(limpiar_moneda)
             
@@ -106,20 +110,21 @@ def load_data(url):
     except Exception as e:
         return None, str(e)
 
-# ==================== SIDEBAR - CONTROL ====================
+# ==================== SIDEBAR ====================
 st.sidebar.markdown("### 🔄 Control de Datos")
 
 if st.sidebar.button("⟳ ACTUALIZAR DATOS", type="primary", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
-st.sidebar.info("Modifica el Google Sheet y presiona el botón para ver los cambios.")
+st.sidebar.info("Modifica el Google Sheet y presiona el botón.")
 
 # Carga inicial
 df, error = load_data(SHEET_URL)
 
 if error:
     st.error(f"❌ Error conectando: {error}")
+    st.warning("⚠️ Asegúrate de que el Google Sheet tenga permiso 'Cualquier persona con el enlace' en el botón COMPARTIR (arriba derecha).")
     st.stop()
 
 # ==================== FILTROS ====================
@@ -146,7 +151,6 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ==================== APLICAR FILTROS ====================
 if not dept_selected or not curso_selected or not año_selected:
     st.warning("⚠️ Selecciona filtros")
     st.stop()
@@ -176,14 +180,13 @@ with col4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==================== GRÁFICOS (SINAPSIS) ====================
+# ==================== GRÁFICOS ====================
 col_chart1, col_chart2 = st.columns([2, 1])
 
 with col_chart1:
     st.markdown("### 📊 Gasto Mensual")
     meses_orden_list = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
     df_mes = df_filtered.groupby('mes')['importe'].sum().reset_index()
-    # Logica para ordenar meses
     df_mes['mes_orden'] = df_mes['mes'].map({m: i for i, m in enumerate(meses_orden_list)}).fillna(0)
     df_mes = df_mes.sort_values('mes_orden')
     
